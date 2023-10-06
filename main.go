@@ -7,7 +7,9 @@ import (
 	"strings"
 	"os"
 	"text/tabwriter"
-	//"fmt"
+	"fmt"
+	"io"
+	"bytes"
 	"gioui.org/app"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -27,8 +29,8 @@ func lesson(rows [][]string, i int, j int, outc chan string, theseStrings []stri
 		if row%2 != 1 {
 			result += "I"
 		}
-		result += ";" + [6]string{"пн", "вт", "ср", "чт", "пт", "сб"}[row/14]
-		result += ";" + strconv.Itoa((row%14+1)/2)
+		result += "\t" + [6]string{"пн", "вт", "ср", "чт", "пт", "сб"}[row/14]
+		result += "\t" + strconv.Itoa((row%14+1)/2)
 		return result
 	}
 	var ifSearched func(string, []string) string = func(record string, theseStrings []string) string {
@@ -49,9 +51,9 @@ func lesson(rows [][]string, i int, j int, outc chan string, theseStrings []stri
 	for i_i := i; i_i < i+4; i_i++ {
 		// TODO: idea - pairs with subgroups are multilined, they ALWAYS have \n.
 		corrected := strings.Replace(strings.Replace(strings.Replace(rows[j][i_i], "\t", " ", -1), "\n", " ", -1), "  ", " ", -1)
-		result += ";" + corrected
+		result += "\t" + corrected
 		if i_i == i {
-			result += ";" + rows[1][i]
+			result += "\t" + rows[1][i]
 		}
 	}
 	result += "\n"
@@ -107,10 +109,6 @@ func makeTable(filename string, theseStrings []string) []record {
 		}
 	}
 	
-	//sort.SliceStable(lessons, func(i, j int) bool {
-	//	return lessons[i].Index < lessons[j].Index
-	//})
-
 	return lessons
 }
 
@@ -162,14 +160,34 @@ func loop (w *app.Window) error {
 			if startButton.Clicked() {
 				itWereClicked = true
 				prompts := strings.Split(lineEditor.Text(), "~")
-				//w := tabwriter.NewWriter(os.Stdout, 15, 0, 1, ' ', tabwriter.AlignLeft)
-				//fmt.Fprintln(w, "hello\tworld")
-				//w.Flush()
 				records := findRecords(prompts)
-				displayTable = records
+				t := tabwriter.NewWriter(os.Stdout, 15, 0, 1, ' ', tabwriter.AlignRight)
+				old := os.Stdout // keep backup of the real stdout
+				r, w, _ := os.Pipe()
+				os.Stdout = w
+
+				fmt.Fprintln(t, records)
+
+				outC := make(chan string)
+				// copy the output in a separate goroutine so printing can't block indefinitely
+				go func() {
+					var buf bytes.Buffer
+					io.Copy(&buf, r)
+					outC <- buf.String()
+				}()
+
+				// back to normal state
+				w.Close()
+				os.Stdout = old // restoring the real stdout
+				out := <-outC
+
+				//var buf []byte
+				
+
+				displayTable = out
 				if records == "" {
 					displayTable = "Извините, но по Вашему запросу ничего не найдено"
-				}				
+				}	
 			}
 			if itWereClicked {
 				widgets = append(widgets,
